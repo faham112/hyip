@@ -428,3 +428,93 @@ function hyip_ajax_process_profits() {
     ));
 }
 add_action('wp_ajax_hyip_process_profits', 'hyip_ajax_process_profits');
+
+/**
+ * Handle deposit submission
+ */
+function hyip_handle_deposit_submission() {
+    if (isset($_POST['submit_deposit']) && wp_verify_nonce($_POST['deposit_nonce'], 'hyip_deposit')) {
+        $user_id = get_current_user_id();
+        $amount = floatval($_POST['deposit_amount']);
+        $errors = array();
+
+        if ($amount <= 0) {
+            $errors[] = 'Invalid deposit amount.';
+        }
+
+        if (empty($_FILES['payment_slip']['name'])) {
+            $errors[] = 'Payment slip is required.';
+        }
+
+        if (empty($errors)) {
+            require_once(ABSPATH . 'wp-admin/includes/file.php');
+
+            $uploadedfile = $_FILES['payment_slip'];
+            $upload_overrides = array('test_form' => false);
+            $movefile = wp_handle_upload($uploadedfile, $upload_overrides);
+
+            if ($movefile && !isset($movefile['error'])) {
+                global $wpdb;
+                $table_deposits = $wpdb->prefix . 'hyip_deposits';
+
+                $wpdb->insert($table_deposits, array(
+                    'user_id' => $user_id,
+                    'amount' => $amount,
+                    'slip_url' => $movefile['url'],
+                    'status' => 'pending',
+                    'deposit_date' => current_time('mysql')
+                ));
+
+                return 'Deposit submitted successfully. Please wait for admin approval.';
+            } else {
+                $errors[] = 'File upload error: ' . $movefile['error'];
+            }
+        }
+        return $errors;
+    }
+    return null;
+}
+
+/**
+ * Approve a deposit
+ */
+function hyip_approve_deposit($deposit_id) {
+    global $wpdb;
+    $table_deposits = $wpdb->prefix . 'hyip_deposits';
+    $table_users = $wpdb->prefix . 'hyip_users';
+    $table_transactions = $wpdb->prefix . 'hyip_transactions';
+
+    $deposit = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_deposits WHERE id = %d AND status = 'pending'", $deposit_id));
+
+    if ($deposit) {
+        $wpdb->update($table_deposits, array('status' => 'approved'), array('id' => $deposit_id));
+        $wpdb->query($wpdb->prepare("UPDATE $table_users SET balance = balance + %f WHERE user_id = %d", $deposit->amount, $deposit->user_id));
+
+        $wpdb->insert($table_transactions, array(
+            'user_id' => $deposit->user_id,
+            'type' => 'deposit',
+            'amount' => $deposit->amount,
+            'description' => 'Deposit approved by admin',
+            'reference_id' => $deposit_id,
+            'status' => 'completed'
+        ));
+        return 'Deposit approved successfully.';
+    }
+    return 'Invalid deposit or already processed.';
+}
+
+/**
+ * Reject a deposit
+ */
+function hyip_reject_deposit($deposit_id) {
+    global $wpdb;
+    $table_deposits = $wpdb->prefix . 'hyip_deposits';
+
+    $deposit = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_deposits WHERE id = %d AND status = 'pending'", $deposit_id));
+
+    if ($deposit) {
+        $wpdb->update($table_deposits, array('status' => 'rejected'), array('id' => $deposit_id));
+        return 'Deposit rejected successfully.';
+    }
+    return 'Invalid deposit or already processed.';
+}

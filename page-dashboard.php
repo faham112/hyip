@@ -32,6 +32,9 @@ if (!$hyip_user) {
     $hyip_user = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table_users WHERE user_id = %d", $user_id));
 }
 
+// Handle deposit form submission
+$deposit_message = hyip_handle_deposit_submission();
+
 // Get user's investments
 $investments = $wpdb->get_results($wpdb->prepare("
     SELECT i.*, p.name as plan_name, p.daily_percent, p.duration
@@ -49,6 +52,15 @@ $transactions = $wpdb->get_results($wpdb->prepare("
     LIMIT 10
 ", $user_id));
 
+// Get user's deposits
+$table_deposits = $wpdb->prefix . 'hyip_deposits';
+$deposits = $wpdb->get_results($wpdb->prepare("
+    SELECT * FROM $table_deposits
+    WHERE user_id = %d
+    ORDER BY deposit_date DESC
+    LIMIT 5
+", $user_id));
+
 get_header(); ?>
 
 <main id="primary" class="site-main">
@@ -57,6 +69,20 @@ get_header(); ?>
             <h1>Welcome back, <?php echo esc_html($current_user->display_name ?: $current_user->user_login); ?>!</h1>
             <p>Your Investment Dashboard</p>
         </div>
+
+        <?php if ($deposit_message) : ?>
+            <div class="alert <?php echo is_array($deposit_message) ? 'alert-danger' : 'alert-success'; ?>">
+                <?php
+                if (is_array($deposit_message)) {
+                    foreach ($deposit_message as $error) {
+                        echo '<p>' . esc_html($error) . '</p>';
+                    }
+                } else {
+                    echo '<p>' . esc_html($deposit_message) . '</p>';
+                }
+                ?>
+            </div>
+        <?php endif; ?>
 
         <!-- User Stats -->
         <div class="dashboard-stats">
@@ -193,6 +219,14 @@ get_header(); ?>
                                 <small>Start earning today</small>
                             </div>
                         </a>
+
+                        <button type="button" id="depositBtn" class="btn btn-info" style="display: flex; align-items: center; gap: 1rem; padding: 1rem; text-align: left; width: 100%;">
+                            <i class="fas fa-donate" style="font-size: 1.5rem;"></i>
+                            <div>
+                                <strong>Deposit Funds</strong><br>
+                                <small>Add to your balance</small>
+                            </div>
+                        </button>
                         
                         <a href="<?php echo home_url('/withdraw'); ?>" class="btn btn-success" style="display: flex; align-items: center; gap: 1rem; padding: 1rem;">
                             <i class="fas fa-money-bill-wave" style="font-size: 1.5rem;"></i>
@@ -323,11 +357,101 @@ get_header(); ?>
                 </div>
             <?php endif; ?>
         </div>
+
+        <!-- Recent Deposits -->
+        <div class="card" style="margin-top: 2rem;">
+            <h2 style="margin-bottom: 2rem; color: #333;">
+                <i class="fas fa-history"></i> Recent Deposits
+            </h2>
+            
+            <?php if (empty($deposits)) : ?>
+                <div style="text-align: center; padding: 2rem; color: #666;">
+                    <i class="fas fa-receipt" style="font-size: 3rem; margin-bottom: 1rem; opacity: 0.3;"></i>
+                    <h4>No Deposits Yet</h4>
+                    <p>Your deposit history will appear here</p>
+                </div>
+            <?php else : ?>
+                <div style="overflow-x: auto;">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Amount</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($deposits as $deposit) : ?>
+                            <tr>
+                                <td><?php echo date('M j, Y H:i', strtotime($deposit->deposit_date)); ?></td>
+                                <td>$<?php echo number_format($deposit->amount, 2); ?></td>
+                                <td>
+                                    <span class="badge <?php echo $deposit->status == 'approved' ? 'badge-success' : ($deposit->status == 'pending' ? 'badge-warning' : 'badge-danger'); ?>">
+                                        <?php echo ucfirst($deposit->status); ?>
+                                    </span>
+                                </td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php endif; ?>
+        </div>
     </div>
 </main>
 
+<!-- Deposit Modal -->
+<div id="depositModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 9999; justify-content: center; align-items: center;">
+    <div style="background: white; border-radius: 15px; padding: 2rem; width: 90%; max-width: 500px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+            <h2 style="margin: 0; color: #333;"><i class="fas fa-donate"></i> Deposit Funds</h2>
+            <button type="button" id="closeDepositModal" style="background: none; border: none; font-size: 1.5rem; color: #999; cursor: pointer;">&times;</button>
+        </div>
+        
+        <form id="depositForm" method="post" enctype="multipart/form-data">
+            <?php wp_nonce_field('hyip_deposit', 'deposit_nonce'); ?>
+            <div class="form-group">
+                <label for="deposit_amount">Amount ($)</label>
+                <input type="number" id="deposit_amount" name="deposit_amount" class="form-control" step="0.01" required>
+            </div>
+            <div class="form-group">
+                <label for="payment_slip">Payment Slip</label>
+                <input type="file" id="payment_slip" name="payment_slip" class="form-control" required>
+                <small class="form-text text-muted">Upload a screenshot or receipt of your payment.</small>
+            </div>
+            <div style="display: flex; gap: 1rem; justify-content: flex-end;">
+                <button type="button" id="cancelDeposit" class="btn btn-secondary">Cancel</button>
+                <button type="submit" name="submit_deposit" class="btn btn-primary">Submit Deposit</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    const depositModal = document.getElementById('depositModal');
+    const depositBtn = document.getElementById('depositBtn');
+    const closeDepositModal = document.getElementById('closeDepositModal');
+    const cancelDeposit = document.getElementById('cancelDeposit');
+
+    depositBtn.addEventListener('click', () => {
+        depositModal.style.display = 'flex';
+    });
+
+    closeDepositModal.addEventListener('click', () => {
+        depositModal.style.display = 'none';
+    });
+
+    cancelDeposit.addEventListener('click', () => {
+        depositModal.style.display = 'none';
+    });
+
+    depositModal.addEventListener('click', function(e) {
+        if (e.target === depositModal) {
+            depositModal.style.display = 'none';
+        }
+    });
+
     // Auto-refresh page every 5 minutes to update data
     setTimeout(function() {
         location.reload();
