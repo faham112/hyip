@@ -3,6 +3,17 @@
  * HYIP Manager Theme Functions
  */
 
+// Custom error handler for debugging
+function hyip_fatal_error_handler() {
+    $error = error_get_last();
+    if ($error && in_array($error['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR])) {
+        echo "<pre>";
+        print_r($error);
+        echo "</pre>";
+    }
+}
+register_shutdown_function('hyip_fatal_error_handler');
+
 // Security check
 if (!defined('ABSPATH')) {
     exit;
