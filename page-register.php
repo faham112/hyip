@@ -9,6 +9,13 @@ if (is_user_logged_in()) {
     exit;
 }
 
+// Handle the registration form
+$errors = array();
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $errors = hyip_handle_registration();
+}
+
+
 get_header(); ?>
 
 <main id="primary" class="site-main">
@@ -23,6 +30,13 @@ get_header(); ?>
                     
                     <?php
                     // Display registration messages
+                    if (!empty($errors)) {
+                        echo '<div class="alert alert-danger">';
+                        foreach ($errors as $error) {
+                            echo '<p>' . esc_html($error) . '</p>';
+                        }
+                        echo '</div>';
+                    }
                     if (isset($_GET['registration']) && $_GET['registration'] == 'failed') {
                         echo '<div class="alert alert-danger">Registration failed. Please check your information and try again.</div>';
                     }
@@ -31,7 +45,8 @@ get_header(); ?>
                     }
                     ?>
                     
-                    <form name="registerform" id="registerform" action="<?php echo esc_url(site_url('wp-login.php?action=register', 'login_post')); ?>" method="post" novalidate="novalidate">
+                    <form name="registerform" id="registerform" action="<?php echo esc_url(get_permalink()); ?>" method="post">
+                        <?php wp_nonce_field('hyip_register', 'register_nonce'); ?>
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="form-group">
@@ -71,8 +86,8 @@ get_header(); ?>
                         </div>
                         
                         <div class="form-group">
-                            <label for="user_pass_confirm">Confirm Password <span style="color: red;">*</span></label>
-                            <input type="password" name="user_pass_confirm" id="user_pass_confirm" class="form-control" size="20" required />
+                            <label for="confirm_password">Confirm Password <span style="color: red;">*</span></label>
+                            <input type="password" name="confirm_password" id="confirm_password" class="form-control" size="20" required />
                         </div>
                         
                         <div class="form-group">
@@ -93,7 +108,7 @@ get_header(); ?>
                         
                         <input type="hidden" name="redirect_to" value="<?php echo esc_attr(home_url('/login?registration=complete')); ?>" />
                         
-                        <button type="submit" name="wp-submit" id="wp-submit" class="btn btn-success" style="width: 100%;">
+                        <button type="submit" name="register_submit" id="register_submit" class="btn btn-success" style="width: 100%;">
                             <i class="fas fa-user-plus"></i> Create Account
                         </button>
                     </form>
@@ -182,7 +197,7 @@ get_header(); ?>
 document.addEventListener('DOMContentLoaded', function() {
     const form = document.getElementById('registerform');
     const password = document.getElementById('user_pass');
-    const confirmPassword = document.getElementById('user_pass_confirm');
+    const confirmPassword = document.getElementById('confirm_password');
     
     form.addEventListener('submit', function(e) {
         if (password.value !== confirmPassword.value) {
