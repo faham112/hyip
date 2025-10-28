@@ -210,7 +210,7 @@ function hyip_insert_default_plans() {
 }
 
 // Run table creation on theme switch
-// add_action('after_switch_theme', 'hyip_create_tables'); // Temporarily disabled for debugging
+add_action('after_switch_theme', 'hyip_create_tables');
 
 // Hide admin bar for non-admin users
 function hyip_hide_admin_bar() {
