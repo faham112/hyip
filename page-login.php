@@ -5,8 +5,38 @@
 
 // Redirect if already logged in
 if (is_user_logged_in()) {
-    wp_redirect(home_url('/dashboard'));
+    $user = wp_get_current_user();
+    if (user_can($user, 'manage_options')) {
+        wp_redirect(home_url('/admin'));
+    } else {
+        wp_redirect(home_url('/dashboard'));
+    }
     exit;
+}
+
+$login_error = '';
+if (isset($_POST['wp-submit'])) {
+    $credentials = array(
+        'user_login'    => sanitize_user($_POST['log']),
+        'user_password' => $_POST['pwd'],
+        'remember'      => isset($_POST['rememberme'])
+    );
+
+    $user = wp_signon($credentials, false);
+
+    if (is_wp_error($user)) {
+        $login_error = $user->get_error_message();
+    } else {
+        // Redirection is handled by hyip_login_redirect_handler filter
+        // No explicit redirect here, as the filter will take care of it.
+        // If for some reason the filter doesn't fire, a fallback to dashboard.
+        if (user_can($user, 'manage_options')) {
+            wp_redirect(home_url('/admin'));
+        } else {
+            wp_redirect(home_url('/dashboard'));
+        }
+        exit;
+    }
 }
 
 get_header(); ?>
@@ -19,13 +49,11 @@ get_header(); ?>
                     <h2><i class="fas fa-sign-in-alt"></i> Login to Your Account</h2>
                     
                     <?php
-                    // Display login messages
-                    if (isset($_GET['login']) && $_GET['login'] == 'failed') {
-                        echo '<div class="alert alert-danger">Invalid username or password. Please try again.</div>';
+                    // Display custom login errors
+                    if (!empty($login_error)) {
+                        echo '<div class="alert alert-danger">' . esc_html($login_error) . '</div>';
                     }
-                    if (isset($_GET['login']) && $_GET['login'] == 'empty') {
-                        echo '<div class="alert alert-danger">Username and password are required.</div>';
-                    }
+                    // Display other messages
                     if (isset($_GET['registration']) && $_GET['registration'] == 'complete') {
                         echo '<div class="alert alert-success">Registration completed! You can now login.</div>';
                     }
@@ -34,7 +62,7 @@ get_header(); ?>
                     }
                     ?>
                     
-                    <form name="loginform" id="loginform" action="<?php echo esc_url(site_url('wp-login.php', 'login_post')); ?>" method="post">
+                    <form name="loginform" id="loginform" action="<?php echo esc_url(get_permalink()); ?>" method="post">
                         <div class="form-group">
                             <label for="user_login">Username or Email Address</label>
                             <input type="text" name="log" id="user_login" class="form-control" value="<?php echo esc_attr(wp_unslash($_POST['log'] ?? '')); ?>" size="20" autocapitalize="off" required />
@@ -53,7 +81,6 @@ get_header(); ?>
                             </label>
                         </div>
                         
-                        <input type="hidden" name="redirect_to" value="<?php echo esc_attr(home_url('/dashboard')); ?>" />
                         <input type="hidden" name="testcookie" value="1" />
                         
                         <button type="submit" name="wp-submit" id="wp-submit" class="btn btn-primary" style="width: 100%;">
