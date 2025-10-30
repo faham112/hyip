@@ -1,4 +1,27 @@
 <?php
+
+// Add custom columns to users list
+function add_custom_user_columns( $columns ) {
+    $columns['ref_id'] = 'Referral ID';
+    $columns['total_invested'] = 'Total Invested';
+    return $columns;
+}
+add_filter( 'manage_users_columns', 'add_custom_user_columns' );
+
+// Populate custom columns with data
+function populate_custom_user_columns( $value, $column_name, $user_id ) {
+    if ( 'ref_id' == $column_name ) {
+        return get_user_meta( $user_id, 'ref_id', true );
+    }
+    if ( 'total_invested' == $column_name ) {
+        global $wpdb;
+        $table_users = $wpdb->prefix . 'hyip_users';
+        $total_invested = $wpdb->get_var( $wpdb->prepare( "SELECT total_invested FROM $table_users WHERE user_id = %d", $user_id ) );
+        return $total_invested ? $total_invested : '0.00';
+    }
+    return $value;
+}
+add_filter( 'manage_users_custom_column', 'populate_custom_user_columns', 10, 3 );
 /**
  * Admin Functions for HYIP Manager
  */
